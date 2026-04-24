@@ -662,6 +662,23 @@ class PlaylistPlayerApp(rumps.App):
 
         return f"{prefix}{track.name}"
     
+    # PlaylistPlayerApp : update_status_title
+    def update_status_title(self):
+        if self.player is None or self.current_index is None or not self.track_list:
+            self.title = "▶"
+            return
+    
+        track = self.track_list[self.current_index]
+        icon = "▶" if self.paused else "⏸"
+    
+        name = track.stem
+        max_len = 32
+    
+        if len(name) > max_len:
+            name = name[: max_len - 1] + "…"
+    
+        self.title = f"{icon}  {name}"
+    
     # PlaylistPlayerApp : make_track_callback
     def make_track_callback(self, index: int):
         def callback(_):
@@ -705,7 +722,8 @@ class PlaylistPlayerApp(rumps.App):
             rumps.alert("Playback error", f"{track.name}\n\n{error}")
             return
 
-        self.title = "⏸"
+        # self.title = "⏸"
+        self.update_status_title()
         self.rebuild_playlist_menu()
         self.update_now_playing()
     
@@ -916,15 +934,16 @@ class PlaylistPlayerApp(rumps.App):
             if self.paused:
                 self.player.play()
                 self.paused = False
-                self.title = "⏸"
+                # self.title = "⏸"
             else:
                 self.player.pause()
                 self.paused = True
-                self.title = "▶"
+                # self.title = "▶"
         
         except Exception as error:
             rumps.alert("Playback error", str(error))
 
+        self.update_status_title()
         self.rebuild_playlist_menu()
         self.update_now_playing()
     
@@ -942,8 +961,9 @@ class PlaylistPlayerApp(rumps.App):
     
         self.player = None
         self.paused = False
-        self.title = "▶"
-    
+        # self.title = "▶"
+        
+        self.update_status_title()
         self.rebuild_playlist_menu()
         self.update_now_playing()
     
