@@ -1,5 +1,5 @@
 
-# pip install rumps audioplayer pyobjc-framework-Quartz pyobjc-framework-AVFoundation pyobjc-framework-CoreMedia
+# pip install rumps pyobjc-framework-Quartz pyobjc-framework-AVFoundation pyobjc-framework-CoreMedia
 
 from pathlib import Path
 
@@ -7,7 +7,6 @@ import objc
 import Quartz
 import rumps
 
-# from audioplayer import AudioPlayer
 from AVFoundation import AVPlayer, AVPlayerItemDidPlayToEndTimeNotification
 from CoreMedia import CMTimeMake, CMTimeGetSeconds, CMTimeMakeWithSeconds
 
@@ -309,21 +308,6 @@ class PlaylistPlayerApp(rumps.App):
         key_code = (data >> 16) & 0xFFFF
         key_state = (data >> 8) & 0xFF        
         # print("media key:", key_code, "state:", key_state)
-    
-        # if key_state != NX_KEYDOWN:
-        #     return None
-    
-        # if key_code == NX_KEYTYPE_PLAY:
-        #     self.play_pause(None)
-        #     return None
-        
-        # if key_code in (NX_KEYTYPE_NEXT, NX_KEYTYPE_FAST):
-        #     self.play_next()
-        #     return None
-        
-        # if key_code in (NX_KEYTYPE_PREVIOUS, NX_KEYTYPE_REWIND):
-        #     self.play_previous()
-        #     return None
         
         if key_code == NX_KEYTYPE_PLAY:
             if key_state == NX_KEYDOWN:
