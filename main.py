@@ -185,7 +185,7 @@ class PlaylistPlayerApp(rumps.App):
         super().__init__("▶", quit_button=None)
 
         self.folder: Path | None = None
-        self.songs: list[Path] = []
+        self.track_list: list[Path] = []
 
         self.current_index: int | None = None
         self.player: AudioPlayer | None = None
@@ -243,7 +243,7 @@ class PlaylistPlayerApp(rumps.App):
             self.quit_item,
         ]
         
-        self.playlist_menu.add(rumps.MenuItem("No songs loaded", callback=None))
+        self.playlist_menu.add(rumps.MenuItem("No tracks loaded", callback=None))
         
         self.media_key_monitor = None
         self.start_media_key_monitor()
@@ -459,7 +459,7 @@ class PlaylistPlayerApp(rumps.App):
             return
     
         self.folder = path
-        self.songs = self.load_songs(path)
+        self.track_list = self.load_tracks(path)
     
         self.stop(None)
         self.current_index = None
@@ -468,69 +468,69 @@ class PlaylistPlayerApp(rumps.App):
         self.rebuild_playlist_menu()
         self.close_drop_folder_window()
     
-        if not self.songs:
+        if not self.track_list:
             self.stop(None)
             self.rebuild_playlist_menu()
-            rumps.alert("No songs found", "No supported audio files found in that folder.")
+            rumps.alert("No tracks found", "No supported audio files found in that folder.")
             return
         
-        self.play_song(0)
+        self.play_track(0)
     
     # PlaylistPlayerApp : set_playlist_folder
     def set_playlist_folder(self, _):
         self.show_drop_folder_window()
     
-    # PlaylistPlayerApp : load_songs
-    def load_songs(self, folder: Path) -> list[Path]:
-        songs = []
+    # PlaylistPlayerApp : load_tracks
+    def load_tracks(self, folder: Path) -> list[Path]:
+        tracks = []
 
         for path in folder.iterdir():
             if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
-                songs.append(path)
+                tracks.append(path)
 
-        songs.sort(key=lambda p: p.name.lower())
-        return songs
+        tracks.sort(key=lambda p: p.name.lower())
+        return tracks
     
     # PlaylistPlayerApp : rebuild_playlist_menu
     def rebuild_playlist_menu(self):
-        if not self.songs:
+        if not self.track_list:
             self.playlist_menu.clear()
-            self.playlist_menu.add(rumps.MenuItem("No songs loaded", callback=None))
+            self.playlist_menu.add(rumps.MenuItem("No tracks loaded", callback=None))
             return
     
         self.playlist_menu.clear()
     
-        for index, song in enumerate(self.songs):
+        for index, track in enumerate(self.track_list):
             item = rumps.MenuItem(
-                self.song_title(index),
-                callback=self.make_song_callback(index),
+                self.track_title(index),
+                callback=self.make_track_callback(index),
             )
             self.playlist_menu.add(item)
     
-    # PlaylistPlayerApp : song_title
-    def song_title(self, index: int) -> str:
-        song = self.songs[index]
+    # PlaylistPlayerApp : track_title
+    def track_title(self, index: int) -> str:
+        track = self.track_list[index]
 
         if index == self.current_index:
             prefix = "⏸ " if self.paused else "▶ "
         else:
             prefix = ""
 
-        return f"{prefix}{song.name}"
+        return f"{prefix}{track.name}"
     
-    # PlaylistPlayerApp : make_song_callback
-    def make_song_callback(self, index: int):
+    # PlaylistPlayerApp : make_track_callback
+    def make_track_callback(self, index: int):
         def callback(_):
             if index == self.current_index:
                 self.play_pause(None)
             else:
-                self.play_song(index)
+                self.play_track(index)
 
         return callback
     
-    # PlaylistPlayerApp : play_song
-    def play_song(self, index: int):
-        if index < 0 or index >= len(self.songs):
+    # PlaylistPlayerApp : play_track
+    def play_track(self, index: int):
+        if index < 0 or index >= len(self.track_list):
             return
 
         self.stop(None)
@@ -538,10 +538,10 @@ class PlaylistPlayerApp(rumps.App):
         self.current_index = index
         self.paused = False
 
-        song = self.songs[index]
+        track = self.track_list[index]
 
         try:
-            self.player = AudioPlayer(str(song))
+            self.player = AudioPlayer(str(track))
             self.player.play(block=False)
         except Exception as error:
             self.player = None
@@ -553,39 +553,39 @@ class PlaylistPlayerApp(rumps.App):
     
     # PlaylistPlayerApp : play_next
     def play_next(self):
-        if not self.songs:
+        if not self.track_list:
             return
     
         if self.current_index is None:
-            self.play_song(0)
+            self.play_track(0)
             return
     
-        next_index = (self.current_index + 1) % len(self.songs)
-        self.play_song(next_index)
+        next_index = (self.current_index + 1) % len(self.track_list)
+        self.play_track(next_index)
     
     # PlaylistPlayerApp : play_previous
     def play_previous(self):
-        if not self.songs:
+        if not self.track_list:
             return
     
         if self.current_index is None:
-            self.play_song(0)
+            self.play_track(0)
             return
     
-        previous_index = (self.current_index - 1) % len(self.songs)
-        self.play_song(previous_index)
+        previous_index = (self.current_index - 1) % len(self.track_list)
+        self.play_track(previous_index)
 
     # PlaylistPlayerApp : play_pause
     def play_pause(self, _):
-        if not self.songs:
+        if not self.track_list:
             return
 
         if self.current_index is None:
-            self.play_song(0)
+            self.play_track(0)
             return
 
         if self.player is None:
-            self.play_song(self.current_index)
+            self.play_track(self.current_index)
             return
 
         try:
