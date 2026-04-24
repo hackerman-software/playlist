@@ -56,7 +56,6 @@ class DropWindow(NSWindow):
     def canBecomeMainWindow(self):
         return True
 
-        
 def nscolor_from_hex(hex_color: str, alpha: float = 1.0):
     hex_color = hex_color.lstrip("#")
 
@@ -66,8 +65,11 @@ def nscolor_from_hex(hex_color: str, alpha: float = 1.0):
 
     return NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, alpha)
 
+
+# FolderDropView
 class FolderDropView(NSView):
     
+    # FolderDropView : initWithCallback_closeCallback_
     def initWithCallback_closeCallback_(self, callback, close_callback):
         self = self.init()
         if self is None:
@@ -79,29 +81,36 @@ class FolderDropView(NSView):
         self.registerForDraggedTypes_([NSPasteboardTypeFileURL])
         return self
 
+    # FolderDropView : isFlipped
     def isFlipped(self):
         return True
-        
+    
+    # FolderDropView : acceptsFirstResponder
     def acceptsFirstResponder(self):
         return True
-
+    
+    # FolderDropView : acceptsFirstMouse_
     def acceptsFirstMouse_(self, event):
         return True
-
+    
+    # FolderDropView : mouseDown_
     def mouseDown_(self, event):
         self.window().performWindowDragWithEvent_(event)
-
+    
+    # FolderDropView : draggingEntered_
     def draggingEntered_(self, sender):
         if self._folder_from_drag(sender) is not None:
             self.hovering = True
             self.setNeedsDisplay_(True)
             return NSDragOperationCopy
         return 0
-
+    
+    # FolderDropView : draggingExited_
     def draggingExited_(self, sender):
         self.hovering = False
         self.setNeedsDisplay_(True)
-
+    
+    # FolderDropView : performDragOperation_
     def performDragOperation_(self, sender):
         self.hovering = False
         self.setNeedsDisplay_(True)
@@ -112,7 +121,8 @@ class FolderDropView(NSView):
 
         self.callback(folder)
         return True
-
+    
+    # FolderDropView : drawRect_
     def drawRect_(self, rect):
         bounds = self.bounds()
         inset = 24
@@ -136,7 +146,8 @@ class FolderDropView(NSView):
         drop_path.setLineWidth_(2.0)
         drop_path.setLineDash_count_phase_([8.0, 5.0], 2, 0.0)
         drop_path.stroke()
-
+    
+    # FolderDropView : _folder_from_drag
     def _folder_from_drag(self, sender):
         pasteboard = sender.draggingPasteboard()
         urls = pasteboard.readObjectsForClasses_options_([NSURL], None)
@@ -156,6 +167,7 @@ class FolderDropView(NSView):
 
         return None
     
+    # FolderDropView : keyDown_
     def keyDown_(self, event):
         if event.keyCode() == 53: # Escape
             if hasattr(self, "close_callback") and self.close_callback is not None:
@@ -167,6 +179,7 @@ class FolderDropView(NSView):
         objc.super(FolderDropView, self).keyDown_(event)
 
 
+# PlaylistPlayerApp
 class PlaylistPlayerApp(rumps.App):
     def __init__(self):
         super().__init__("▶", quit_button=None)
@@ -234,7 +247,8 @@ class PlaylistPlayerApp(rumps.App):
         
         self.media_key_monitor = None
         self.start_media_key_monitor()
-
+    
+    # PlaylistPlayerApp : start_media_key_monitor
     def start_media_key_monitor(self):
         if self.media_key_monitor is not None:
             return
@@ -244,6 +258,7 @@ class PlaylistPlayerApp(rumps.App):
             self.handle_media_key_event,
         )
     
+    # PlaylistPlayerApp : handle_media_key_event
     def handle_media_key_event(self, event):
         # subtype 8 = media keys / special system keys
         if event.subtype() != 8:
@@ -267,7 +282,8 @@ class PlaylistPlayerApp(rumps.App):
     
         elif key_code == NX_KEYTYPE_PREVIOUS:
             self.play_previous()        
-
+    
+    # PlaylistPlayerApp : show_about
     def show_about(self, _):
         alert = NSAlert.alloc().init()
         alert.setAlertStyle_(NSAlertStyleInformational)
@@ -297,7 +313,8 @@ class PlaylistPlayerApp(rumps.App):
             return True
     
         return True
-        
+    
+    # PlaylistPlayerApp : center_window_on_main_screen
     def center_window_on_main_screen(self, window):
         screen = NSScreen.mainScreen()
         if screen is None:
@@ -310,14 +327,16 @@ class PlaylistPlayerApp(rumps.App):
         y = screen_frame.origin.y + (screen_frame.size.height - window_frame.size.height) / 2
     
         window.setFrameOrigin_((x, y))
-        
+    
+    # PlaylistPlayerApp : close_drop_folder_window
     def close_drop_folder_window(self):
         if getattr(self, "drop_window", None) is not None:
             try:
                 self.drop_window.orderOut_(None)
             except:
                 pass
-                
+    
+    # PlaylistPlayerApp : destroy_drop_folder_window
     def destroy_drop_folder_window(self):
         if getattr(self, "drop_window", None) is not None:
             try:
@@ -332,9 +351,9 @@ class PlaylistPlayerApp(rumps.App):
         self.drop_panel = None
         self.drop_view = None
         self.drop_labels = []
-
+    
+    # PlaylistPlayerApp : show_drop_folder_window
     def show_drop_folder_window(self):
-        
         width = 460
         height = 460
         
@@ -432,7 +451,8 @@ class PlaylistPlayerApp(rumps.App):
         NSApp.activateIgnoringOtherApps_(True)
         self.drop_window.makeKeyAndOrderFront_(None)
         self.drop_window.makeFirstResponder_(self.drop_view)
-        
+    
+    # PlaylistPlayerApp : load_playlist_folder
     def load_playlist_folder(self, path: Path):
         if not path.exists() or not path.is_dir():
             rumps.alert("Invalid folder", f"Not a folder:\n{path}")
@@ -456,9 +476,11 @@ class PlaylistPlayerApp(rumps.App):
         
         self.play_song(0)
     
+    # PlaylistPlayerApp : set_playlist_folder
     def set_playlist_folder(self, _):
         self.show_drop_folder_window()
-
+    
+    # PlaylistPlayerApp : load_songs
     def load_songs(self, folder: Path) -> list[Path]:
         songs = []
 
@@ -468,7 +490,8 @@ class PlaylistPlayerApp(rumps.App):
 
         songs.sort(key=lambda p: p.name.lower())
         return songs
-
+    
+    # PlaylistPlayerApp : rebuild_playlist_menu
     def rebuild_playlist_menu(self):
         if not self.songs:
             self.playlist_menu.clear()
@@ -483,7 +506,8 @@ class PlaylistPlayerApp(rumps.App):
                 callback=self.make_song_callback(index),
             )
             self.playlist_menu.add(item)
-
+    
+    # PlaylistPlayerApp : song_title
     def song_title(self, index: int) -> str:
         song = self.songs[index]
 
@@ -493,7 +517,8 @@ class PlaylistPlayerApp(rumps.App):
             prefix = ""
 
         return f"{prefix}{song.name}"
-
+    
+    # PlaylistPlayerApp : make_song_callback
     def make_song_callback(self, index: int):
         def callback(_):
             if index == self.current_index:
@@ -502,7 +527,8 @@ class PlaylistPlayerApp(rumps.App):
                 self.play_song(index)
 
         return callback
-
+    
+    # PlaylistPlayerApp : play_song
     def play_song(self, index: int):
         if index < 0 or index >= len(self.songs):
             return
@@ -524,7 +550,8 @@ class PlaylistPlayerApp(rumps.App):
 
         self.title = "⏸"
         self.rebuild_playlist_menu()
-        
+    
+    # PlaylistPlayerApp : play_next
     def play_next(self):
         if not self.songs:
             return
@@ -536,6 +563,7 @@ class PlaylistPlayerApp(rumps.App):
         next_index = (self.current_index + 1) % len(self.songs)
         self.play_song(next_index)
     
+    # PlaylistPlayerApp : play_previous
     def play_previous(self):
         if not self.songs:
             return
@@ -547,6 +575,7 @@ class PlaylistPlayerApp(rumps.App):
         previous_index = (self.current_index - 1) % len(self.songs)
         self.play_song(previous_index)
 
+    # PlaylistPlayerApp : play_pause
     def play_pause(self, _):
         if not self.songs:
             return
@@ -572,7 +601,8 @@ class PlaylistPlayerApp(rumps.App):
             rumps.alert("Playback error", str(error))
 
         self.rebuild_playlist_menu()
-
+    
+    # PlaylistPlayerApp : stop
     def stop(self, _):
         if self.player is not None:
             try:
@@ -585,7 +615,8 @@ class PlaylistPlayerApp(rumps.App):
         self.title = "▶"
 
         self.rebuild_playlist_menu()
-
+    
+    # PlaylistPlayerApp : quit_app
     def quit_app(self, _):
         self.stop(None)
         
