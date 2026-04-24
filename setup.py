@@ -31,6 +31,8 @@ OPTIONS = {
         "Foundation",
         "AppKit",
         "Quartz",
+        "AVFoundation",
+        "CoreMedia",
     ],
 
     # Pillow is not used in your current version, so do not include it.
