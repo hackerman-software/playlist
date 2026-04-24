@@ -1,6 +1,8 @@
 
 # pip install rumps pyobjc-framework-Quartz pyobjc-framework-AVFoundation pyobjc-framework-CoreMedia
 
+# Important: Privacy & Security -> Accessibility -> Playlist.app (enable to use media keys)
+
 from pathlib import Path
 
 import objc
