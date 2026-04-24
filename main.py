@@ -216,7 +216,8 @@ class FolderDropView(NSView):
 class PlaylistPlayerApp(rumps.App):
     
     def __init__(self):
-        super().__init__("▶", quit_button=None)
+        super().__init__("Playlist", quit_button=None)
+        self.title = "▶"
 
         self.folder: Path | None = None
         self.track_list: list[Path] = []
