@@ -1,0 +1,528 @@
+
+# pip install rumps audioplayer py2app
+
+from pathlib import Path
+
+import objc
+import rumps
+from audioplayer import AudioPlayer
+
+from AppKit import (
+    NSApp,
+    # NSImage,
+    NSScreen,
+    NSAlert,
+    NSAlertStyleInformational,
+    NSWorkspace,
+    NSWindow,
+    NSView,
+    NSTextField,
+    NSColor,
+    NSBackingStoreBuffered,
+    NSWindowStyleMaskBorderless,
+    NSDragOperationCopy,
+    NSPasteboardTypeFileURL,
+    NSBezierPath,
+    NSFont,
+    NSFontWeightSemibold,
+    NSVisualEffectView,
+    NSVisualEffectMaterialHUDWindow,
+    NSVisualEffectBlendingModeBehindWindow,
+    NSVisualEffectStateActive,
+)
+from Foundation import NSURL
+
+AUDIO_EXTENSIONS = {
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".flac",
+    ".m4a",
+    ".aac",
+}
+
+
+class DropWindow(NSWindow):
+    def canBecomeKeyWindow(self):
+        return True
+
+    def canBecomeMainWindow(self):
+        return True
+
+
+class FolderDropView(NSView):
+    
+    def initWithCallback_closeCallback_(self, callback, close_callback):
+        self = self.init()
+        if self is None:
+            return None
+    
+        self.callback = callback
+        self.close_callback = close_callback
+        self.hovering = False
+        self.registerForDraggedTypes_([NSPasteboardTypeFileURL])
+        return self
+
+    def isFlipped(self):
+        return True
+        
+    def acceptsFirstResponder(self):
+        return True
+
+    def acceptsFirstMouse_(self, event):
+        return True
+
+    def mouseDown_(self, event):
+        self.window().performWindowDragWithEvent_(event)
+
+    def draggingEntered_(self, sender):
+        if self._folder_from_drag(sender) is not None:
+            self.hovering = True
+            self.setNeedsDisplay_(True)
+            return NSDragOperationCopy
+        return 0
+
+    def draggingExited_(self, sender):
+        self.hovering = False
+        self.setNeedsDisplay_(True)
+
+    def performDragOperation_(self, sender):
+        self.hovering = False
+        self.setNeedsDisplay_(True)
+
+        folder = self._folder_from_drag(sender)
+        if folder is None:
+            return False
+
+        self.callback(folder)
+        return True
+
+    def drawRect_(self, rect):
+        bounds = self.bounds()
+        inset = 24
+        drop_rect = (
+            (inset, inset),
+            (bounds.size.width - inset * 2, bounds.size.height - inset * 2),
+        )
+        drop_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            drop_rect,
+            18,
+            18,
+        )
+        
+        fill = NSColor.controlAccentColor().colorWithAlphaComponent_(0.05)
+        stroke = NSColor.separatorColor().colorWithAlphaComponent_(0.5)
+
+        fill.setFill()
+        drop_path.fill()
+
+        stroke.setStroke()
+        drop_path.setLineWidth_(2.0)
+        drop_path.setLineDash_count_phase_([8.0, 5.0], 2, 0.0)
+        drop_path.stroke()
+
+    def _folder_from_drag(self, sender):
+        pasteboard = sender.draggingPasteboard()
+        urls = pasteboard.readObjectsForClasses_options_([NSURL], None)
+
+        if not urls:
+            return None
+
+        url = urls[0]
+
+        if not url.isFileURL():
+            return None
+
+        path = Path(str(url.path())).expanduser()
+
+        if path.exists() and path.is_dir():
+            return path
+
+        return None
+    
+    def keyDown_(self, event):
+        if event.keyCode() == 53: # Escape
+            if hasattr(self, "close_callback") and self.close_callback is not None:
+                self.close_callback()
+            else:
+                self.window().close()
+            return
+    
+        objc.super(FolderDropView, self).keyDown_(event)
+
+
+class PlaylistPlayerApp(rumps.App):
+    def __init__(self):
+        super().__init__("▶", quit_button=None)
+
+        self.folder: Path | None = None
+        self.songs: list[Path] = []
+
+        self.current_index: int | None = None
+        self.player: AudioPlayer | None = None
+        self.paused = False
+        
+        self.about_item = rumps.MenuItem(
+            "About Playlist",
+            callback=self.show_about,
+        )
+        
+        self.set_folder_item = rumps.MenuItem(
+            "Set Playlist Folder...",
+            callback=self.set_playlist_folder,
+        )
+        
+        self.playlist_menu = rumps.MenuItem("Playlist")
+        
+        self.play_pause_item = rumps.MenuItem(
+            "Play / Pause",
+            callback=self.play_pause,
+        )
+        
+        self.stop_item = rumps.MenuItem(
+            "Stop",
+            callback=self.stop,
+        )
+        
+        self.quit_item = rumps.MenuItem(
+            "Quit",
+            callback=self.quit_app,
+        )
+        
+        self.menu = [
+            self.set_folder_item,
+            None,
+            self.playlist_menu,
+            None,
+            self.play_pause_item,
+            self.stop_item,
+            None,
+            self.about_item,
+            None,
+            self.quit_item,
+        ]
+        
+        self.playlist_menu.add(rumps.MenuItem("No songs loaded", callback=None))
+        
+    def show_about(self, _):
+        alert = NSAlert.alloc().init()
+        alert.setAlertStyle_(NSAlertStyleInformational)
+        alert.setMessageText_("Playlist")
+        alert.setInformativeText_("Version 0.1.0\n© 2026 Michael Sjoeberg")
+    
+        alert.addButtonWithTitle_("Website")
+        alert.addButtonWithTitle_("Close")
+    
+        NSApp.activateIgnoringOtherApps_(True)
+    
+        window = alert.window()
+        window.setLevel_(3)
+    
+        # Force layout so the alert has its final size before centering.
+        window.layoutIfNeeded()
+    
+        self.center_window_on_main_screen(window)
+    
+        window.makeKeyAndOrderFront_(None)
+    
+        response = alert.runModal()
+    
+        if response == 1000:
+            url = NSURL.URLWithString_("https://hackerman.ai")
+            NSWorkspace.sharedWorkspace().openURL_(url)
+            return True
+    
+        return True
+        
+    def center_window_on_main_screen(self, window):
+        screen = NSScreen.mainScreen()
+        if screen is None:
+            return
+    
+        screen_frame = screen.visibleFrame()
+        window_frame = window.frame()
+    
+        x = screen_frame.origin.x + (screen_frame.size.width - window_frame.size.width) / 2
+        y = screen_frame.origin.y + (screen_frame.size.height - window_frame.size.height) / 2
+    
+        window.setFrameOrigin_((x, y))
+        
+    def close_drop_folder_window(self):
+        if getattr(self, "drop_window", None) is not None:
+            try:
+                self.drop_window.orderOut_(None)
+            except Exception:
+                pass
+                
+    def destroy_drop_folder_window(self):
+        if getattr(self, "drop_window", None) is not None:
+            try:
+                self.drop_window.orderOut_(None)
+                self.drop_window.setContentView_(None)
+                self.drop_window.close()
+            except Exception:
+                pass
+    
+        self.drop_window = None
+        self.drop_root = None
+        self.drop_panel = None
+        self.drop_view = None
+        self.drop_labels = []
+
+    def show_drop_folder_window(self):
+        
+        width = 460
+        height = 260
+        
+        if getattr(self, "drop_window", None) is not None:
+            NSApp.activateIgnoringOtherApps_(True)
+            self.drop_window.center()
+            self.drop_window.makeKeyAndOrderFront_(None)
+            self.drop_window.makeFirstResponder_(self.drop_view)
+            return
+    
+        self.drop_window = DropWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            ((0, 0), (width, height)),
+            NSWindowStyleMaskBorderless,
+            NSBackingStoreBuffered,
+            False,
+        )
+    
+        self.drop_window.setTitle_("Set Playlist Folder")
+        self.drop_window.center()
+        self.drop_window.setOpaque_(False)
+        self.drop_window.setBackgroundColor_(NSColor.clearColor())
+        self.drop_window.setHasShadow_(True)
+        self.drop_window.setMovableByWindowBackground_(True)
+    
+        # Keeps it above normal windows, but not obnoxiously global.
+        self.drop_window.setLevel_(3)
+        
+        self.drop_root = NSView.alloc().initWithFrame_(((0, 0), (width, height)))
+        self.drop_root.setWantsLayer_(True)
+        self.drop_root.layer().setBackgroundColor_(NSColor.clearColor().CGColor())
+        
+        panel_inset = 8
+        panel_width = width - panel_inset * 2
+        panel_height = height - panel_inset * 2
+        
+        self.drop_panel = NSVisualEffectView.alloc().initWithFrame_(
+            (
+                (panel_inset, panel_inset),
+                (width - panel_inset * 2, height - panel_inset * 2),
+            )
+        )
+        self.drop_panel.setMaterial_(NSVisualEffectMaterialHUDWindow)
+        self.drop_panel.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
+        self.drop_panel.setState_(NSVisualEffectStateActive)
+        self.drop_panel.setWantsLayer_(True)
+        
+        panel_layer = self.drop_panel.layer()
+        panel_layer.setCornerRadius_(24)
+        panel_layer.setMasksToBounds_(True)
+        panel_layer.setBorderWidth_(1.0)
+        panel_layer.setBorderColor_(
+            NSColor.whiteColor().colorWithAlphaComponent_(0.14).CGColor()
+        )
+    
+        self.drop_view = FolderDropView.alloc().initWithCallback_closeCallback_(
+            self.load_playlist_folder,
+            self.close_drop_folder_window,
+        )
+        self.drop_view.setFrame_(((0, 0), (panel_width, panel_height)))
+        self.drop_view.setWantsLayer_(True)
+        self.drop_view.layer().setBackgroundColor_(NSColor.clearColor().CGColor())
+    
+        # icon = NSTextField.alloc().initWithFrame_(((0, 48), (panel_width, 42)))
+        # icon.setStringValue_("🎵")
+        # icon.setAlignment_(1)
+        # icon.setEditable_(False)
+        # icon.setSelectable_(False)
+        # icon.setBezeled_(False)
+        # icon.setDrawsBackground_(False)
+        # icon.setFont_(NSFont.systemFontOfSize_(34))
+        # icon.setTextColor_(NSColor.labelColor())
+    
+        title = NSTextField.alloc().initWithFrame_(((0, 96), (panel_width, 34)))
+        title.setStringValue_("Drop playlist folder here")
+        title.setAlignment_(1)
+        title.setEditable_(False)
+        title.setSelectable_(False)
+        title.setBezeled_(False)
+        title.setDrawsBackground_(False)
+        title.setFont_(NSFont.systemFontOfSize_weight_(22, NSFontWeightSemibold))
+        title.setTextColor_(NSColor.labelColor())
+    
+        # subtitle = NSTextField.alloc().initWithFrame_(((40, 135), (panel_width - 80, 46)))
+        # subtitle.setStringValue_("Any supported audio files in the folder will be added to the playlist.")
+        # subtitle.setAlignment_(1)
+        # subtitle.setEditable_(False)
+        # subtitle.setSelectable_(False)
+        # subtitle.setBezeled_(False)
+        # subtitle.setDrawsBackground_(False)
+        # subtitle.setFont_(NSFont.systemFontOfSize_(13))
+        # subtitle.setTextColor_(NSColor.secondaryLabelColor())
+        # subtitle.setLineBreakMode_(0)
+    
+        hint = NSTextField.alloc().initWithFrame_(((0, 198), (panel_width, 24)))
+        hint.setStringValue_("MP3, WAV, OGG, FLAC, M4A, AAC")
+        hint.setAlignment_(1)
+        hint.setEditable_(False)
+        hint.setSelectable_(False)
+        hint.setBezeled_(False)
+        hint.setDrawsBackground_(False)
+        hint.setFont_(NSFont.systemFontOfSize_(11))
+        hint.setTextColor_(NSColor.tertiaryLabelColor())
+        
+        self.drop_labels = [title, hint]
+    
+        self.drop_panel.addSubview_(self.drop_view)
+        self.drop_root.addSubview_(self.drop_panel)
+        
+        # drop_view.addSubview_(icon)
+        self.drop_view.addSubview_(title)
+        # drop_view.addSubview_(subtitle)
+        self.drop_view.addSubview_(hint)
+    
+        self.drop_window.setContentView_(self.drop_root)
+        self.drop_window.contentView().setWantsLayer_(True)
+        self.drop_window.contentView().layer().setBackgroundColor_(NSColor.clearColor().CGColor())
+        NSApp.activateIgnoringOtherApps_(True)
+        self.drop_window.makeKeyAndOrderFront_(None)
+        self.drop_window.makeFirstResponder_(self.drop_view)
+        
+    def load_playlist_folder(self, path: Path):
+        if not path.exists() or not path.is_dir():
+            rumps.alert("Invalid folder", f"Not a folder:\n{path}")
+            return
+    
+        self.folder = path
+        self.songs = self.load_songs(path)
+    
+        self.stop(None)
+        self.current_index = None
+        self.paused = False
+    
+        self.rebuild_playlist_menu()
+        self.close_drop_folder_window()
+    
+        if not self.songs:
+            rumps.alert("No songs found", "No supported audio files found in that folder.")
+    
+    def set_playlist_folder(self, _):
+        self.show_drop_folder_window()
+
+    def load_songs(self, folder: Path) -> list[Path]:
+        songs = []
+
+        for path in folder.iterdir():
+            if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS:
+                songs.append(path)
+
+        songs.sort(key=lambda p: p.name.lower())
+        return songs
+
+    def rebuild_playlist_menu(self):
+        if not self.songs:
+            self.playlist_menu.clear()
+            self.playlist_menu.add(rumps.MenuItem("No songs loaded", callback=None))
+            return
+    
+        self.playlist_menu.clear()
+    
+        for index, song in enumerate(self.songs):
+            item = rumps.MenuItem(
+                self.song_title(index),
+                callback=self.make_song_callback(index),
+            )
+            self.playlist_menu.add(item)
+
+    def song_title(self, index: int) -> str:
+        song = self.songs[index]
+
+        if index == self.current_index:
+            prefix = "⏸ " if self.paused else "▶ "
+        else:
+            prefix = ""
+
+        return f"{prefix}{song.name}"
+
+    def make_song_callback(self, index: int):
+        def callback(_):
+            if index == self.current_index:
+                self.play_pause(None)
+            else:
+                self.play_song(index)
+
+        return callback
+
+    def play_song(self, index: int):
+        if index < 0 or index >= len(self.songs):
+            return
+
+        self.stop(None)
+
+        self.current_index = index
+        self.paused = False
+
+        song = self.songs[index]
+
+        try:
+            self.player = AudioPlayer(str(song))
+            self.player.play(block=False)
+        except Exception as e:
+            self.player = None
+            rumps.alert("Playback error", str(e))
+            return
+
+        self.title = "⏸"
+        self.rebuild_playlist_menu()
+
+    def play_pause(self, _):
+        if not self.songs:
+            return
+
+        if self.current_index is None:
+            self.play_song(0)
+            return
+
+        if self.player is None:
+            self.play_song(self.current_index)
+            return
+
+        try:
+            if self.paused:
+                self.player.resume()
+                self.paused = False
+                self.title = "⏸"
+            else:
+                self.player.pause()
+                self.paused = True
+                self.title = "▶"
+        except Exception as e:
+            rumps.alert("Playback error", str(e))
+
+        self.rebuild_playlist_menu()
+
+    def stop(self, _):
+        if self.player is not None:
+            try:
+                self.player.stop()
+            except Exception:
+                pass
+
+        self.player = None
+        self.paused = False
+        self.title = "▶"
+
+        self.rebuild_playlist_menu()
+
+    def quit_app(self, _):
+        self.stop(None)
+        self.destroy_drop_folder_window()
+        rumps.quit_application()
+
+
+if __name__ == "__main__":
+    PlaylistPlayerApp().run()
+
