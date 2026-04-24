@@ -13,6 +13,8 @@ from AppKit import (
     NSScreen,
     NSAlert,
     NSAlertStyleInformational,
+    NSEvent,
+    NSEventMaskSystemDefined,
     NSWorkspace,
     NSWindow,
     NSView,
@@ -40,6 +42,11 @@ AUDIO_EXTENSIONS = {
     ".m4a",
     ".aac",
 }
+
+# macOS media key constants
+NX_KEYTYPE_PLAY = 16
+NX_KEYTYPE_NEXT = 17
+NX_KEYTYPE_PREVIOUS = 18
 
 
 class DropWindow(NSWindow):
@@ -193,6 +200,16 @@ class PlaylistPlayerApp(rumps.App):
             callback=self.stop,
         )
         
+        self.previous_item = rumps.MenuItem(
+            "Previous",
+            callback=lambda _: self.play_previous(),
+        )
+        
+        self.next_item = rumps.MenuItem(
+            "Next",
+            callback=lambda _: self.play_next(),
+        )
+        
         self.quit_item = rumps.MenuItem(
             "Quit",
             callback=self.quit_app,
@@ -205,6 +222,8 @@ class PlaylistPlayerApp(rumps.App):
             None,
             self.play_pause_item,
             self.stop_item,
+            self.previous_item,
+            self.next_item,
             None,
             self.about_item,
             None,
@@ -213,6 +232,42 @@ class PlaylistPlayerApp(rumps.App):
         
         self.playlist_menu.add(rumps.MenuItem("No songs loaded", callback=None))
         
+        self.media_key_monitor = None
+        self.start_media_key_monitor()
+
+    def start_media_key_monitor(self):
+        if self.media_key_monitor is not None:
+            return
+    
+        self.media_key_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
+            NSEventMaskSystemDefined,
+            self.handle_media_key_event,
+        )
+    
+    def handle_media_key_event(self, event):
+        # subtype 8 = media keys / special system keys
+        if event.subtype() != 8:
+            return
+    
+        data = event.data1()
+    
+        key_code = (data & 0xFFFF0000) >> 16
+        key_state = (data & 0x0000FF00) >> 8
+    
+        # 0xA = key down, 0xB = key up.
+        # Only handle key down to avoid double-trigger.
+        if key_state != 0xA:
+            return
+    
+        if key_code == NX_KEYTYPE_PLAY:
+            self.play_pause(None)
+    
+        elif key_code == NX_KEYTYPE_NEXT:
+            self.play_next()
+    
+        elif key_code == NX_KEYTYPE_PREVIOUS:
+            self.play_previous()        
+
     def show_about(self, _):
         alert = NSAlert.alloc().init()
         alert.setAlertStyle_(NSAlertStyleInformational)
@@ -260,7 +315,7 @@ class PlaylistPlayerApp(rumps.App):
         if getattr(self, "drop_window", None) is not None:
             try:
                 self.drop_window.orderOut_(None)
-            except Exception:
+            except:
                 pass
                 
     def destroy_drop_folder_window(self):
@@ -269,7 +324,7 @@ class PlaylistPlayerApp(rumps.App):
                 self.drop_window.orderOut_(None)
                 self.drop_window.setContentView_(None)
                 self.drop_window.close()
-            except Exception:
+            except:
                 pass
     
         self.drop_window = None
@@ -462,13 +517,35 @@ class PlaylistPlayerApp(rumps.App):
         try:
             self.player = AudioPlayer(str(song))
             self.player.play(block=False)
-        except Exception as e:
+        except Exception as error:
             self.player = None
-            rumps.alert("Playback error", str(e))
+            rumps.alert("Playback error", str(error))
             return
 
         self.title = "⏸"
         self.rebuild_playlist_menu()
+        
+    def play_next(self):
+        if not self.songs:
+            return
+    
+        if self.current_index is None:
+            self.play_song(0)
+            return
+    
+        next_index = (self.current_index + 1) % len(self.songs)
+        self.play_song(next_index)
+    
+    def play_previous(self):
+        if not self.songs:
+            return
+    
+        if self.current_index is None:
+            self.play_song(0)
+            return
+    
+        previous_index = (self.current_index - 1) % len(self.songs)
+        self.play_song(previous_index)
 
     def play_pause(self, _):
         if not self.songs:
@@ -491,8 +568,8 @@ class PlaylistPlayerApp(rumps.App):
                 self.player.pause()
                 self.paused = True
                 self.title = "▶"
-        except Exception as e:
-            rumps.alert("Playback error", str(e))
+        except Exception as error:
+            rumps.alert("Playback error", str(error))
 
         self.rebuild_playlist_menu()
 
@@ -500,7 +577,7 @@ class PlaylistPlayerApp(rumps.App):
         if self.player is not None:
             try:
                 self.player.stop()
-            except Exception:
+            except:
                 pass
 
         self.player = None
@@ -511,6 +588,11 @@ class PlaylistPlayerApp(rumps.App):
 
     def quit_app(self, _):
         self.stop(None)
+        
+        if self.media_key_monitor is not None:
+            NSEvent.removeMonitor_(self.media_key_monitor)
+            self.media_key_monitor = None
+        
         self.destroy_drop_folder_window()
         rumps.quit_application()
 
