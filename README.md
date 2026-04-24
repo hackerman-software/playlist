@@ -7,7 +7,7 @@ A simple menu bar media player for macOS.
 
 ![print2.png](print2.png)
 
-## To use media keys
+## To use media keys (requires permission)
 
-Requires permission: **Privacy & Security -> Accessibility -> Playlist.app**
+**Privacy & Security -> Accessibility -> Playlist.app**
 
