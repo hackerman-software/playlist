@@ -1,22 +1,22 @@
 
-# pip install rumps audioplayer pyobjc-framework-Quartz
+# pip install rumps audioplayer pyobjc-framework-Quartz pyobjc-framework-AVFoundation pyobjc-framework-CoreMedia
 
 from pathlib import Path
 
 import objc
 import Quartz
 import rumps
-from audioplayer import AudioPlayer
+
+# from audioplayer import AudioPlayer
+from AVFoundation import AVPlayer, AVPlayerItemDidPlayToEndTimeNotification
+from CoreMedia import CMTimeMake, CMTimeGetSeconds, CMTimeMakeWithSeconds
 
 from AppKit import (
     NSApp,
-    # NSImage,
     NSScreen,
     NSAlert,
     NSAlertStyleInformational,
     NSSystemDefined,
-    # NSEvent,
-    # NSEventMaskSystemDefined,
     NSWorkspace,
     NSWindow,
     NSView,
@@ -34,7 +34,14 @@ from AppKit import (
     NSVisualEffectBlendingModeBehindWindow,
     NSVisualEffectStateActive,
 )
-from Foundation import NSURL
+from Foundation import NSURL, NSObject, NSNotificationCenter
+
+from MediaPlayer import (
+    MPNowPlayingInfoCenter,
+    MPMediaItemPropertyTitle,
+    MPMediaItemPropertyArtist,
+    MPNowPlayingInfoPropertyPlaybackRate,
+)
 
 AUDIO_EXTENSIONS = {
     ".mp3",
@@ -61,6 +68,19 @@ class DropWindow(NSWindow):
 
     def canBecomeMainWindow(self):
         return True
+
+class TrackEndObserver(NSObject):
+    def initWithCallback_(self, callback):
+        self = self.init()
+        if self is None:
+            return None
+
+        self.callback = callback
+        return self
+
+    def playerItemDidEnd_(self, notification):
+        if hasattr(self, "callback") and self.callback is not None:
+            self.callback()        
 
 def nscolor_from_hex(hex_color: str, alpha: float = 1.0):
     hex_color = hex_color.lstrip("#")
@@ -194,9 +214,20 @@ class PlaylistPlayerApp(rumps.App):
         self.track_list: list[Path] = []
 
         self.current_index: int | None = None
-        self.player: AudioPlayer | None = None
+        self.player: AVPlayer | None = None
         self.paused = False
+        self.track_end_observer = None
+        self.track_end_item = None
         
+        self.scan_key = None
+        self.scan_elapsed = 0.0
+        self.scan_active = False
+        self.scan_timer = rumps.Timer(self.scan_timer_tick, 0.1)
+        
+        self.scan_hold_delay = 0.15
+        self.scan_step_seconds = 3.0
+        
+        # menu
         self.playlist_menu = rumps.MenuItem("Playlist")
         
         self.about_item = rumps.MenuItem("About Playlist", callback=self.show_about)
@@ -276,23 +307,41 @@ class PlaylistPlayerApp(rumps.App):
         data = ns_event.data1()
     
         key_code = (data >> 16) & 0xFFFF
-        key_state = (data >> 8) & 0xFF
-        
+        key_state = (data >> 8) & 0xFF        
         # print("media key:", key_code, "state:", key_state)
     
-        if key_state != NX_KEYDOWN:
-            return None
+        # if key_state != NX_KEYDOWN:
+        #     return None
     
+        # if key_code == NX_KEYTYPE_PLAY:
+        #     self.play_pause(None)
+        #     return None
+        
+        # if key_code in (NX_KEYTYPE_NEXT, NX_KEYTYPE_FAST):
+        #     self.play_next()
+        #     return None
+        
+        # if key_code in (NX_KEYTYPE_PREVIOUS, NX_KEYTYPE_REWIND):
+        #     self.play_previous()
+        #     return None
+        
         if key_code == NX_KEYTYPE_PLAY:
-            self.play_pause(None)
+            if key_state == NX_KEYDOWN:
+                self.play_pause(None)
             return None
         
         if key_code in (NX_KEYTYPE_NEXT, NX_KEYTYPE_FAST):
-            self.play_next()
+            if key_state == NX_KEYDOWN:
+                self.begin_scan_or_skip("next")
+            elif key_state == NX_KEYUP:
+                self.end_scan_or_skip("next")
             return None
         
         if key_code in (NX_KEYTYPE_PREVIOUS, NX_KEYTYPE_REWIND):
-            self.play_previous()
+            if key_state == NX_KEYDOWN:
+                self.begin_scan_or_skip("previous")
+            elif key_state == NX_KEYUP:
+                self.end_scan_or_skip("previous")
             return None
     
         return event
@@ -566,11 +615,22 @@ class PlaylistPlayerApp(rumps.App):
 
         return callback
     
+    def cancel_scan(self):
+        try:
+            self.scan_timer.stop()
+        except Exception:
+            pass
+    
+        self.scan_key = None
+        self.scan_elapsed = 0.0
+        self.scan_active = False
+    
     # PlaylistPlayerApp : play_track
     def play_track(self, index: int):
         if index < 0 or index >= len(self.track_list):
             return
-
+        
+        self.cancel_scan()
         self.stop(None)
 
         self.current_index = index
@@ -579,17 +639,20 @@ class PlaylistPlayerApp(rumps.App):
         track = self.track_list[index]
 
         try:
-            self.player = AudioPlayer(str(track))
-            self.player.play(block=False)
+            url = NSURL.fileURLWithPath_(str(track))
+            self.player = AVPlayer.playerWithURL_(url)
+            self.player.play()
+            self.install_track_end_observer()
         except Exception as error:
             self.player = None
-            rumps.alert("Playback error", str(error))
+            rumps.alert("Playback error", f"{track.name}\n\n{error}")
             return
 
         self.title = "⏸"
         self.rebuild_playlist_menu()
         self.update_now_playing()
-        
+    
+    # PlaylistPlayerApp : update_now_playing
     def update_now_playing(self):
         if self.current_index is None or not self.track_list:
             MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(None)
@@ -603,6 +666,149 @@ class PlaylistPlayerApp(rumps.App):
         }
     
         MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(info)
+    
+    # PlaylistPlayerApp : clear_track_end_observer
+    def clear_track_end_observer(self):
+        if self.track_end_observer is not None and self.track_end_item is not None:
+            try:
+                NSNotificationCenter.defaultCenter().removeObserver_name_object_(
+                    self.track_end_observer,
+                    AVPlayerItemDidPlayToEndTimeNotification,
+                    self.track_end_item,
+                )
+            except Exception:
+                pass
+    
+        self.track_end_observer = None
+        self.track_end_item = None
+    
+    # PlaylistPlayerApp : install_track_end_observer
+    def install_track_end_observer(self):
+        if self.player is None:
+            return
+    
+        item = self.player.currentItem()
+        if item is None:
+            return
+    
+        self.clear_track_end_observer()
+    
+        self.track_end_item = item
+        self.track_end_observer = TrackEndObserver.alloc().initWithCallback_(
+            self.handle_track_finished
+        )
+    
+        NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+            self.track_end_observer,
+            "playerItemDidEnd:",
+            AVPlayerItemDidPlayToEndTimeNotification,
+            item,
+        )
+    
+    # PlaylistPlayerApp : handle_track_finished
+    def handle_track_finished(self):
+        if not self.track_list:
+            return
+    
+        if self.current_index is None:
+            return
+    
+        next_index = self.current_index + 1
+    
+        if next_index >= len(self.track_list):
+            # End of playlist: stop and reset to first item visually.
+            self.stop(None)
+            self.current_index = None
+            self.rebuild_playlist_menu()
+            return
+    
+        self.play_track(next_index)
+    
+    def begin_scan_or_skip(self, key: str):
+        if not self.track_list:
+            return
+    
+        # Ignore repeated key-down events while already tracking this key.
+        if self.scan_key == key:
+            return
+    
+        self.scan_key = key
+        self.scan_elapsed = 0.0
+        self.scan_active = False
+    
+        try:
+            self.scan_timer.stop()
+        except Exception:
+            pass
+    
+        self.scan_timer.start()
+    
+    
+    def end_scan_or_skip(self, key: str):
+        if self.scan_key != key:
+            return
+    
+        was_scanning = self.scan_active
+    
+        try:
+            self.scan_timer.stop()
+        except Exception:
+            pass
+    
+        self.scan_key = None
+        self.scan_elapsed = 0.0
+        self.scan_active = False
+    
+        # Short press: skip track.
+        # Long press: only scanned within the track, do not also skip.
+        if not was_scanning:
+            if key == "next":
+                self.play_next()
+            elif key == "previous":
+                self.play_previous()
+    
+    
+    def scan_timer_tick(self, _):
+        if self.scan_key is None:
+            return
+    
+        self.scan_elapsed += 0.1
+    
+        if self.scan_elapsed < self.scan_hold_delay:
+            return
+    
+        self.scan_active = True
+    
+        if self.scan_key == "next":
+            self.seek_relative(self.scan_step_seconds)
+        elif self.scan_key == "previous":
+            self.seek_relative(-self.scan_step_seconds)
+    
+    
+    def seek_relative(self, delta_seconds: float):
+        if self.player is None:
+            return
+    
+        try:
+            current_time = self.player.currentTime()
+            current_seconds = CMTimeGetSeconds(current_time)
+    
+            if current_seconds != current_seconds:  # NaN check
+                current_seconds = 0.0
+    
+            new_seconds = max(0.0, current_seconds + delta_seconds)
+    
+            item = self.player.currentItem()
+            if item is not None:
+                duration_seconds = CMTimeGetSeconds(item.duration())
+    
+                if duration_seconds == duration_seconds and duration_seconds > 0:
+                    new_seconds = min(new_seconds, max(0.0, duration_seconds - 0.25))
+    
+            self.player.seekToTime_(CMTimeMakeWithSeconds(new_seconds, 600))
+    
+        except Exception:
+            pass
     
     # PlaylistPlayerApp : play_next
     def play_next(self):
@@ -642,38 +848,52 @@ class PlaylistPlayerApp(rumps.App):
             return
 
         try:
+            # if self.paused:
+            #     self.player.resume()
+            #     self.paused = False
+            #     self.title = "⏸"
+            # else:
+            #     self.player.pause()
+            #     self.paused = True
+            #     self.title = "▶"
             if self.paused:
-                self.player.resume()
+                self.player.play()
                 self.paused = False
                 self.title = "⏸"
             else:
                 self.player.pause()
                 self.paused = True
                 self.title = "▶"
+        
         except Exception as error:
             rumps.alert("Playback error", str(error))
 
         self.rebuild_playlist_menu()
         self.update_now_playing()
     
-    # PlaylistPlayerApp : stop
+    # PlaylistPlayerApp : stop    
     def stop(self, _):
+        self.cancel_scan()
+        self.clear_track_end_observer()
+    
         if self.player is not None:
             try:
-                self.player.stop()
-            except:
+                self.player.pause()
+                self.player.seekToTime_(CMTimeMake(0, 1))
+            except Exception:
                 pass
-
+    
         self.player = None
         self.paused = False
         self.title = "▶"
-
+    
         self.rebuild_playlist_menu()
         self.update_now_playing()
     
     # PlaylistPlayerApp : quit_app
     def quit_app(self, _):
         self.stop(None)
+        self.clear_track_end_observer()
         self.destroy_drop_folder_window()
         
         if self.media_event_tap is not None:
