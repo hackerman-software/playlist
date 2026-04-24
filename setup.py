@@ -30,6 +30,7 @@ OPTIONS = {
         "objc",
         "Foundation",
         "AppKit",
+        "Quartz",
     ],
 
     # Pillow is not used in your current version, so do not include it.
