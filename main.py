@@ -49,6 +49,15 @@ class DropWindow(NSWindow):
     def canBecomeMainWindow(self):
         return True
 
+        
+def nscolor_from_hex(hex_color: str, alpha: float = 1.0):
+    hex_color = hex_color.lstrip("#")
+
+    r = int(hex_color[0:2], 16) / 255.0
+    g = int(hex_color[2:4], 16) / 255.0
+    b = int(hex_color[4:6], 16) / 255.0
+
+    return NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, alpha)
 
 class FolderDropView(NSView):
     
@@ -106,12 +115,12 @@ class FolderDropView(NSView):
         )
         drop_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
             drop_rect,
-            18,
-            18,
+            12,
+            12,
         )
         
-        fill = NSColor.controlAccentColor().colorWithAlphaComponent_(0.05)
-        stroke = NSColor.separatorColor().colorWithAlphaComponent_(0.5)
+        fill = nscolor_from_hex("#f174f2", 0.05)
+        stroke = nscolor_from_hex("#f174f2", 0.5)
 
         fill.setFill()
         drop_path.fill()
@@ -272,7 +281,7 @@ class PlaylistPlayerApp(rumps.App):
     def show_drop_folder_window(self):
         
         width = 460
-        height = 260
+        height = 460
         
         if getattr(self, "drop_window", None) is not None:
             NSApp.activateIgnoringOtherApps_(True)
@@ -302,7 +311,7 @@ class PlaylistPlayerApp(rumps.App):
         self.drop_root.setWantsLayer_(True)
         self.drop_root.layer().setBackgroundColor_(NSColor.clearColor().CGColor())
         
-        panel_inset = 8
+        panel_inset = 12
         panel_width = width - panel_inset * 2
         panel_height = height - panel_inset * 2
         
@@ -333,18 +342,8 @@ class PlaylistPlayerApp(rumps.App):
         self.drop_view.setWantsLayer_(True)
         self.drop_view.layer().setBackgroundColor_(NSColor.clearColor().CGColor())
     
-        # icon = NSTextField.alloc().initWithFrame_(((0, 48), (panel_width, 42)))
-        # icon.setStringValue_("🎵")
-        # icon.setAlignment_(1)
-        # icon.setEditable_(False)
-        # icon.setSelectable_(False)
-        # icon.setBezeled_(False)
-        # icon.setDrawsBackground_(False)
-        # icon.setFont_(NSFont.systemFontOfSize_(34))
-        # icon.setTextColor_(NSColor.labelColor())
-    
         title = NSTextField.alloc().initWithFrame_(((0, 96), (panel_width, 34)))
-        title.setStringValue_("Drop playlist folder here")
+        title.setStringValue_("Drop folder here")
         title.setAlignment_(1)
         title.setEditable_(False)
         title.setSelectable_(False)
@@ -352,17 +351,6 @@ class PlaylistPlayerApp(rumps.App):
         title.setDrawsBackground_(False)
         title.setFont_(NSFont.systemFontOfSize_weight_(22, NSFontWeightSemibold))
         title.setTextColor_(NSColor.labelColor())
-    
-        # subtitle = NSTextField.alloc().initWithFrame_(((40, 135), (panel_width - 80, 46)))
-        # subtitle.setStringValue_("Any supported audio files in the folder will be added to the playlist.")
-        # subtitle.setAlignment_(1)
-        # subtitle.setEditable_(False)
-        # subtitle.setSelectable_(False)
-        # subtitle.setBezeled_(False)
-        # subtitle.setDrawsBackground_(False)
-        # subtitle.setFont_(NSFont.systemFontOfSize_(13))
-        # subtitle.setTextColor_(NSColor.secondaryLabelColor())
-        # subtitle.setLineBreakMode_(0)
     
         hint = NSTextField.alloc().initWithFrame_(((0, 198), (panel_width, 24)))
         hint.setStringValue_("MP3, WAV, OGG, FLAC, M4A, AAC")
@@ -372,16 +360,15 @@ class PlaylistPlayerApp(rumps.App):
         hint.setBezeled_(False)
         hint.setDrawsBackground_(False)
         hint.setFont_(NSFont.systemFontOfSize_(11))
-        hint.setTextColor_(NSColor.tertiaryLabelColor())
+        # hint.setTextColor_(NSColor.tertiaryLabelColor())
+        hint.setTextColor_(nscolor_from_hex("#f174f2", 0.5))
         
         self.drop_labels = [title, hint]
     
         self.drop_panel.addSubview_(self.drop_view)
         self.drop_root.addSubview_(self.drop_panel)
         
-        # drop_view.addSubview_(icon)
         self.drop_view.addSubview_(title)
-        # drop_view.addSubview_(subtitle)
         self.drop_view.addSubview_(hint)
     
         self.drop_window.setContentView_(self.drop_root)
