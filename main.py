@@ -1,9 +1,10 @@
 
-# pip install rumps audioplayer py2app
+# pip install rumps audioplayer pyobjc-framework-Quartz
 
 from pathlib import Path
 
 import objc
+import Quartz
 import rumps
 from audioplayer import AudioPlayer
 
@@ -13,8 +14,9 @@ from AppKit import (
     NSScreen,
     NSAlert,
     NSAlertStyleInformational,
-    NSEvent,
-    NSEventMaskSystemDefined,
+    NSSystemDefined,
+    # NSEvent,
+    # NSEventMaskSystemDefined,
     NSWorkspace,
     NSWindow,
     NSView,
@@ -34,6 +36,16 @@ from AppKit import (
 )
 from Foundation import NSURL
 
+from MediaPlayer import (
+    MPRemoteCommandCenter,
+    MPRemoteCommandHandlerStatusSuccess,
+    MPRemoteCommandHandlerStatusCommandFailed,
+    MPNowPlayingInfoCenter,
+    MPMediaItemPropertyTitle,
+    MPMediaItemPropertyArtist,
+    MPNowPlayingInfoPropertyPlaybackRate,
+)
+
 AUDIO_EXTENSIONS = {
     ".mp3",
     ".wav",
@@ -47,6 +59,10 @@ AUDIO_EXTENSIONS = {
 NX_KEYTYPE_PLAY = 16
 NX_KEYTYPE_NEXT = 17
 NX_KEYTYPE_PREVIOUS = 18
+NX_KEYTYPE_FAST = 19
+NX_KEYTYPE_REWIND = 20
+NX_KEYDOWN = 0xA
+NX_KEYUP = 0xB
 
 
 class DropWindow(NSWindow):
@@ -191,42 +207,15 @@ class PlaylistPlayerApp(rumps.App):
         self.player: AudioPlayer | None = None
         self.paused = False
         
-        self.about_item = rumps.MenuItem(
-            "About Playlist",
-            callback=self.show_about,
-        )
-        
-        self.set_folder_item = rumps.MenuItem(
-            "Set Playlist Folder...",
-            callback=self.set_playlist_folder,
-        )
-        
         self.playlist_menu = rumps.MenuItem("Playlist")
         
-        self.play_pause_item = rumps.MenuItem(
-            "Play / Pause",
-            callback=self.play_pause,
-        )
-        
-        self.stop_item = rumps.MenuItem(
-            "Stop",
-            callback=self.stop,
-        )
-        
-        self.previous_item = rumps.MenuItem(
-            "Previous",
-            callback=lambda _: self.play_previous(),
-        )
-        
-        self.next_item = rumps.MenuItem(
-            "Next",
-            callback=lambda _: self.play_next(),
-        )
-        
-        self.quit_item = rumps.MenuItem(
-            "Quit",
-            callback=self.quit_app,
-        )
+        self.about_item = rumps.MenuItem("About Playlist", callback=self.show_about)
+        self.set_folder_item = rumps.MenuItem("Open playlist...", callback=self.set_playlist_folder)
+        self.play_pause_item = rumps.MenuItem("Play / Pause", callback=self.play_pause)
+        self.stop_item = rumps.MenuItem("Stop", callback=self.stop)
+        self.previous_item = rumps.MenuItem("Previous", callback=lambda _: self.play_previous())
+        self.next_item = rumps.MenuItem("Next", callback=lambda _: self.play_next())
+        self.quit_item = rumps.MenuItem("Quit", callback=self.quit_app)
         
         self.menu = [
             self.set_folder_item,
@@ -245,18 +234,78 @@ class PlaylistPlayerApp(rumps.App):
         
         self.playlist_menu.add(rumps.MenuItem("No tracks loaded", callback=None))
         
-        self.media_key_monitor = None
-        self.start_media_key_monitor()
+        self.media_event_tap = None
+        self.media_run_loop_source = None
+        self.setup_media_key_tap()
     
-    # PlaylistPlayerApp : start_media_key_monitor
-    def start_media_key_monitor(self):
-        if self.media_key_monitor is not None:
+    # PlaylistPlayerApp : setup_media_key_tap
+    def setup_media_key_tap(self):
+        mask = Quartz.CGEventMaskBit(Quartz.NSSystemDefined)
+    
+        self.media_event_tap = Quartz.CGEventTapCreate(
+            Quartz.kCGSessionEventTap,
+            Quartz.kCGHeadInsertEventTap,
+            Quartz.kCGEventTapOptionDefault,
+            mask,
+            self.handle_media_key_event_tap,
+            None,
+        )
+    
+        if self.media_event_tap is None:
+            print("Could not create media key event tap. Grant Accessibility permission.")
             return
     
-        self.media_key_monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(
-            NSEventMaskSystemDefined,
-            self.handle_media_key_event,
+        self.media_run_loop_source = Quartz.CFMachPortCreateRunLoopSource(
+            None,
+            self.media_event_tap,
+            0,
         )
+    
+        Quartz.CFRunLoopAddSource(
+            Quartz.CFRunLoopGetCurrent(),
+            self.media_run_loop_source,
+            Quartz.kCFRunLoopCommonModes,
+        )
+    
+        Quartz.CGEventTapEnable(self.media_event_tap, True)
+    
+    # PlaylistPlayerApp : handle_media_key_event_tap
+    def handle_media_key_event_tap(self, proxy, event_type, event, refcon):
+        if event_type != Quartz.NSSystemDefined:
+            return event
+    
+        ns_event = Quartz.NSEvent.eventWithCGEvent_(event)
+    
+        if ns_event is None:
+            return event
+    
+        # subtype 8 = media/special system keys
+        if ns_event.subtype() != 8:
+            return event
+    
+        data = ns_event.data1()
+    
+        key_code = (data >> 16) & 0xFFFF
+        key_state = (data >> 8) & 0xFF
+        
+        # print("media key:", key_code, "state:", key_state)
+    
+        if key_state != NX_KEYDOWN:
+            return None
+    
+        if key_code == NX_KEYTYPE_PLAY:
+            self.play_pause(None)
+            return None
+        
+        if key_code in (NX_KEYTYPE_NEXT, NX_KEYTYPE_FAST):
+            self.play_next()
+            return None
+        
+        if key_code in (NX_KEYTYPE_PREVIOUS, NX_KEYTYPE_REWIND):
+            self.play_previous()
+            return None
+    
+        return event
     
     # PlaylistPlayerApp : handle_media_key_event
     def handle_media_key_event(self, event):
@@ -550,6 +599,21 @@ class PlaylistPlayerApp(rumps.App):
 
         self.title = "⏸"
         self.rebuild_playlist_menu()
+        self.update_now_playing()
+        
+    def update_now_playing(self):
+        if self.current_index is None or not self.track_list:
+            MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(None)
+            return
+    
+        track = self.track_list[self.current_index]
+        info = {
+            MPMediaItemPropertyTitle: track.stem,
+            MPMediaItemPropertyArtist: self.folder.name if self.folder else "Playlist",
+            MPNowPlayingInfoPropertyPlaybackRate: 0.0 if self.paused else 1.0,
+        }
+    
+        MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(info)
     
     # PlaylistPlayerApp : play_next
     def play_next(self):
@@ -601,6 +665,7 @@ class PlaylistPlayerApp(rumps.App):
             rumps.alert("Playback error", str(error))
 
         self.rebuild_playlist_menu()
+        self.update_now_playing()
     
     # PlaylistPlayerApp : stop
     def stop(self, _):
@@ -615,16 +680,33 @@ class PlaylistPlayerApp(rumps.App):
         self.title = "▶"
 
         self.rebuild_playlist_menu()
+        self.update_now_playing()
     
     # PlaylistPlayerApp : quit_app
     def quit_app(self, _):
         self.stop(None)
-        
-        if self.media_key_monitor is not None:
-            NSEvent.removeMonitor_(self.media_key_monitor)
-            self.media_key_monitor = None
-        
         self.destroy_drop_folder_window()
+        
+        # center = MPRemoteCommandCenter.sharedCommandCenter()
+
+        # for token in self.remote_command_tokens:
+        #     try:
+        #         center.playCommand().removeTarget_(token)
+        #         center.pauseCommand().removeTarget_(token)
+        #         center.togglePlayPauseCommand().removeTarget_(token)
+        #         center.nextTrackCommand().removeTarget_(token)
+        #         center.previousTrackCommand().removeTarget_(token)
+        #     except Exception:
+        #         pass
+        
+        # self.remote_command_tokens = []
+        # MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(None)
+        
+        if self.media_event_tap is not None:
+            Quartz.CGEventTapEnable(self.media_event_tap, False)
+            self.media_event_tap = None
+            self.media_run_loop_source = None
+        
         rumps.quit_application()
 
 
