@@ -6,6 +6,7 @@ from pathlib import Path
 import objc
 import Quartz
 import rumps
+import json
 
 from AVFoundation import AVPlayer, AVPlayerItemDidPlayToEndTimeNotification
 from CoreMedia import CMTimeMake, CMTimeGetSeconds, CMTimeMakeWithSeconds
@@ -33,7 +34,14 @@ from AppKit import (
     NSVisualEffectBlendingModeBehindWindow,
     NSVisualEffectStateActive,
 )
-from Foundation import NSURL, NSObject, NSNotificationCenter
+from Foundation import (
+    NSURL,
+    NSObject,
+    NSNotificationCenter,
+    NSSearchPathForDirectoriesInDomains,
+    NSApplicationSupportDirectory,
+    NSUserDomainMask,
+)
 
 from MediaPlayer import (
     MPNowPlayingInfoCenter,
@@ -206,6 +214,7 @@ class FolderDropView(NSView):
 
 # PlaylistPlayerApp
 class PlaylistPlayerApp(rumps.App):
+    
     def __init__(self):
         super().__init__("▶", quit_button=None)
 
@@ -257,6 +266,66 @@ class PlaylistPlayerApp(rumps.App):
         self.media_event_tap = None
         self.media_run_loop_source = None
         self.setup_media_key_tap()
+        self.load_config()
+    
+    # PlaylistPlayerApp : config_path
+    def config_path(self) -> Path:
+        paths = NSSearchPathForDirectoriesInDomains(
+            NSApplicationSupportDirectory,
+            NSUserDomainMask,
+            True,
+        )
+    
+        if paths:
+            base = Path(str(paths[0]))
+        else:
+            base = Path.home() / "Library" / "Application Support"
+    
+        app_dir = base / "Playlist"
+        app_dir.mkdir(parents=True, exist_ok=True)
+    
+        return app_dir / "config.json"
+    
+    # PlaylistPlayerApp : save_config
+    def save_config(self):
+        data = { "folder": str(self.folder) if self.folder else None }
+    
+        try:
+            self.config_path().write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as error:
+            print("Could not save config:", error)
+    
+    # PlaylistPlayerApp : load_config
+    def load_config(self):
+        path = self.config_path()
+    
+        if not path.exists():
+            return
+    
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as error:
+            print("Could not load config:", error)
+            return
+    
+        folder_text = data.get("folder")
+        if not folder_text:
+            return
+    
+        folder = Path(folder_text).expanduser()
+    
+        if not folder.exists() or not folder.is_dir():
+            return
+    
+        self.folder = folder
+        self.track_list = self.load_tracks(folder)
+        self.current_index = None
+        self.paused = False
+    
+        self.rebuild_playlist_menu()
+    
+        # if self.track_list:
+        #     self.play_track(0)
     
     # PlaylistPlayerApp : setup_media_key_tap
     def setup_media_key_tap(self):
@@ -531,6 +600,7 @@ class PlaylistPlayerApp(rumps.App):
     
         self.folder = path
         self.track_list = self.load_tracks(path)
+        self.save_config()
     
         self.stop(None)
         self.current_index = None
