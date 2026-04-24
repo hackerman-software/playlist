@@ -36,16 +36,6 @@ from AppKit import (
 )
 from Foundation import NSURL
 
-from MediaPlayer import (
-    MPRemoteCommandCenter,
-    MPRemoteCommandHandlerStatusSuccess,
-    MPRemoteCommandHandlerStatusCommandFailed,
-    MPNowPlayingInfoCenter,
-    MPMediaItemPropertyTitle,
-    MPMediaItemPropertyArtist,
-    MPNowPlayingInfoPropertyPlaybackRate,
-)
-
 AUDIO_EXTENSIONS = {
     ".mp3",
     ".wav",
@@ -355,7 +345,6 @@ class PlaylistPlayerApp(rumps.App):
         window.makeKeyAndOrderFront_(None)
     
         response = alert.runModal()
-    
         if response == 1000:
             url = NSURL.URLWithString_("https://hackerman.ai")
             NSWorkspace.sharedWorkspace().openURL_(url)
@@ -686,21 +675,6 @@ class PlaylistPlayerApp(rumps.App):
     def quit_app(self, _):
         self.stop(None)
         self.destroy_drop_folder_window()
-        
-        # center = MPRemoteCommandCenter.sharedCommandCenter()
-
-        # for token in self.remote_command_tokens:
-        #     try:
-        #         center.playCommand().removeTarget_(token)
-        #         center.pauseCommand().removeTarget_(token)
-        #         center.togglePlayPauseCommand().removeTarget_(token)
-        #         center.nextTrackCommand().removeTarget_(token)
-        #         center.previousTrackCommand().removeTarget_(token)
-        #     except Exception:
-        #         pass
-        
-        # self.remote_command_tokens = []
-        # MPNowPlayingInfoCenter.defaultCenter().setNowPlayingInfo_(None)
         
         if self.media_event_tap is not None:
             Quartz.CGEventTapEnable(self.media_event_tap, False)
