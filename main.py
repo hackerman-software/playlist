@@ -394,7 +394,12 @@ class PlaylistPlayerApp(rumps.App):
         self.close_drop_folder_window()
     
         if not self.songs:
+            self.stop(None)
+            self.rebuild_playlist_menu()
             rumps.alert("No songs found", "No supported audio files found in that folder.")
+            return
+        
+        self.play_song(0)
     
     def set_playlist_folder(self, _):
         self.show_drop_folder_window()
