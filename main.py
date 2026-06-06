@@ -1,5 +1,5 @@
 
-# pip install rumps pyobjc-framework-Quartz pyobjc-framework-AVFoundation pyobjc-framework-CoreMedia
+# -m pip install rumps pyobjc-framework-Quartz pyobjc-framework-AVFoundation pyobjc-framework-CoreMedia pyobjc-framework-MediaPlayer audioplayer
 
 # Important: Privacy & Security -> Accessibility -> Playlist.app (enable to use media keys)
 
