@@ -33,6 +33,7 @@ OPTIONS = {
         "Quartz",
         "AVFoundation",
         "CoreMedia",
+        "MediaPlayer",
     ],
 
     # Pillow is not used in your current version, so do not include it.
